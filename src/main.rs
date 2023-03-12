@@ -26,10 +26,11 @@ async fn main() -> Result<()> {
             loop {
                 backend_unavailable.notified().await;
                 println!("Got a request to a backend that is unreachable. Trying to scale up.");
-                // TODO: implement proper error handling
-                scaler::scale_deploy("wasm-spin", 1, Duration::from_secs(10))
-                    .await
-                    .expect("ffffff");
+                while let Err(e) =
+                    scaler::scale_deploy("wasm-spin", 1, Duration::from_secs(10)).await
+                {
+                    println!("Failed to scale up: {e}");
+                }
                 backend_available.notify_waiters();
                 println!("Backend is up again.");
             }

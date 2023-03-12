@@ -31,7 +31,7 @@ pub async fn scale_deploy(name: &str, replicas: i32, ready_timeout: Duration) ->
             .status
             .context("Deployment has no status o.O")?
             .ready_replicas
-            .context("Deployment does not know about its ready replicas o.O")?
+            .unwrap_or_default()
             < replicas
         {
             interval.tick().await;
