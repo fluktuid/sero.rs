@@ -7,14 +7,14 @@ use tokio::{
     sync::Notify,
     time::Duration,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{error, info, trace};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let listen_address = "0.0.0.0:3000";
-    let backend_address = "127.0.0.1:8000";
+    let backend_address = "5.75.231.232:30458";
     let target_deploy = "wasm-spin";
 
     let listener = TcpListener::bind(&listen_address).await?;
@@ -32,14 +32,14 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             loop {
                 backend_unavailable.notified().await;
-                debug!("Got a request to a backend that is unreachable. Trying to scale up.");
+                info!("Got a request to a backend that is unreachable. Trying to scale up.");
                 while let Err(e) =
                     scaler::scale_deploy("wasm-spin", 1, Duration::from_secs(10)).await
                 {
                     error!("Failed to scale up: {e}");
                 }
                 backend_available.notify_waiters();
-                debug!("Backend is up again.");
+                info!("Backend is up again.");
             }
         });
     }
@@ -53,6 +53,7 @@ async fn main() -> Result<()> {
             loop {
                 match TcpStream::connect(&backend_address).await {
                     Ok(backend) => {
+                        trace!("Successfully connected to backend. Proxying packets.");
                         proxy_connection(ingress, backend).await;
                         break;
                     }
