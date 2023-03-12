@@ -7,14 +7,21 @@ use tokio::{
     sync::Notify,
     time::Duration,
 };
+use tracing::{debug, error, info, trace};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
     let listen_address = "0.0.0.0:3000";
     let backend_address = "127.0.0.1:8000";
+    let target_deploy = "wasm-spin";
 
     let listener = TcpListener::bind(&listen_address).await?;
-    println!("Listening on {listen_address}.");
+
+    info!("Listening on {listen_address}.");
+    info!("Proxying requests to {backend_address}.");
+    info!("Target deployment is {target_deploy}.");
 
     let backend_unavailable = Arc::new(Notify::new());
     let backend_available = Arc::new(Notify::new());
@@ -25,14 +32,14 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             loop {
                 backend_unavailable.notified().await;
-                println!("Got a request to a backend that is unreachable. Trying to scale up.");
+                debug!("Got a request to a backend that is unreachable. Trying to scale up.");
                 while let Err(e) =
                     scaler::scale_deploy("wasm-spin", 1, Duration::from_secs(10)).await
                 {
-                    println!("Failed to scale up: {e}");
+                    error!("Failed to scale up: {e}");
                 }
                 backend_available.notify_waiters();
-                println!("Backend is up again.");
+                debug!("Backend is up again.");
             }
         });
     }
@@ -64,10 +71,10 @@ async fn main() -> Result<()> {
 async fn proxy_connection(mut ingress: TcpStream, mut backend: TcpStream) {
     match tokio::io::copy_bidirectional(&mut ingress, &mut backend).await {
         Ok((bytes_to_backend, bytes_from_backend)) => {
-            println!("Connection ended gracefully ({bytes_to_backend} bytes from client, {bytes_from_backend} bytes from server)");
+            trace!("Connection ended gracefully ({bytes_to_backend} bytes from client, {bytes_from_backend} bytes from server)");
         }
         Err(e) => {
-            println!("Error while proxying: {e}");
+            error!("Error while proxying: {e}");
         }
     }
 }

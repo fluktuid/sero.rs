@@ -6,8 +6,10 @@ use kube::{
 };
 use serde_json::json;
 use tokio::time::{self, Duration};
+use tracing::trace;
 
 pub async fn scale_deploy(name: &str, replicas: i32, ready_timeout: Duration) -> Result<()> {
+    trace!("Connecting to kube api in order to scale up.");
     let client = Client::try_default().await?;
     let deploy: Api<Deployment> = Api::default_namespaced(client);
     let scale: Scale = serde_json::from_value(json!({
@@ -19,11 +21,14 @@ pub async fn scale_deploy(name: &str, replicas: i32, ready_timeout: Duration) ->
     // do a server-side apply where "sero" is the fieldManager
     let patch = Patch::Apply(&scale);
     let params = PatchParams::apply("sero");
+    trace!("Scaling deployment/{name} to {replicas} replicas.");
     deploy.patch_scale(name, &params, &patch).await?;
+    trace!("Successfully scaled deployment/{name} to {replicas} replicas.");
 
     // wait until enough replicas are ready, this will periodically poll the apiserver
     // after a specified timeout, cancel and error
     let mut interval = time::interval(Duration::from_millis(100));
+    trace!("Waiting for deployment/{name} to have {replicas} ready replicas.");
     time::timeout(ready_timeout, async move {
         while deploy
             .get_status(name)
