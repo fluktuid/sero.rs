@@ -1,4 +1,5 @@
 mod scaler;
+mod settings;
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -13,9 +14,13 @@ use tracing::{error, info, trace};
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let listen_address = "0.0.0.0:3000";
-    let backend_address = "5.75.231.232:30458";
-    let target_deploy = "wasm-spin";
+    let conf = settings::Settings::new();
+
+    let settings = conf.unwrap();
+
+    let listen_address = settings.host;
+    let backend_address = settings.target.service.name + ":" + &settings.target.service.port.to_string();
+    let target_deploy = settings.target.deployment;
 
     let listener = TcpListener::bind(&listen_address).await?;
 
@@ -34,7 +39,7 @@ async fn main() -> Result<()> {
                 backend_unavailable.notified().await;
                 info!("Got a request to a backend that is unreachable. Trying to scale up.");
                 while let Err(e) =
-                    scaler::scale_deploy("wasm-spin", 1, Duration::from_secs(10)).await
+                    scaler::scale_deploy(&target_deploy, 1, Duration::from_secs(10)).await
                 {
                     error!("Failed to scale up: {e}");
                 }
@@ -48,6 +53,7 @@ async fn main() -> Result<()> {
     while let Ok((ingress, _)) = listener.accept().await {
         let backend_unavailable = backend_unavailable.clone();
         let backend_available = backend_available.clone();
+        let backend_address = backend_address.clone();
         // span a new task to handle the connection
         tokio::spawn(async move {
             loop {
