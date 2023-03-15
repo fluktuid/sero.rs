@@ -9,6 +9,8 @@ use tokio::{
     time::Duration,
 };
 use tracing::{error, info, trace};
+use tokio::signal;
+use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,7 +21,9 @@ async fn main() -> Result<()> {
     let settings = conf.unwrap();
 
     let listen_address = settings.host;
-    let backend_address = settings.target.service.name + ":" + &settings.target.service.port.to_string();
+    let name = settings.target.service.name;
+    let backend_address = format!("{}:{}", name , settings.target.service.port.to_string());
+
     let target_deploy = settings.target.deployment;
 
     let listener = TcpListener::bind(&listen_address).await?;
@@ -31,10 +35,11 @@ async fn main() -> Result<()> {
     let backend_unavailable = Arc::new(Notify::new());
     let backend_available = Arc::new(Notify::new());
 
+    let (shutdown_send, mut shutdown_recv) = mpsc::unbounded_channel();
     {
         let backend_unavailable = backend_unavailable.clone();
         let backend_available = backend_available.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 backend_unavailable.notified().await;
                 info!("Got a request to a backend that is unreachable. Trying to scale up.");
@@ -47,29 +52,24 @@ async fn main() -> Result<()> {
                 info!("Backend is up again.");
             }
         });
-    }
-
-    // handle incoming connections
-    while let Ok((ingress, _)) = listener.accept().await {
-        let backend_unavailable = backend_unavailable.clone();
-        let backend_available = backend_available.clone();
-        let backend_address = backend_address.clone();
-        // span a new task to handle the connection
         tokio::spawn(async move {
-            loop {
-                match TcpStream::connect(&backend_address).await {
-                    Ok(backend) => {
-                        trace!("Successfully connected to backend. Proxying packets.");
-                        proxy_connection(ingress, backend).await;
-                        break;
-                    }
-                    Err(_) => {
-                        backend_unavailable.notify_one();
-                        backend_available.notified().await;
-                    }
-                };
+            match signal::ctrl_c().await {
+                Ok(()) => {
+                    info!("received kill signal");
+                    handle.abort();
+                    _ = shutdown_send.send(0);
+                },
+                Err(err) => {
+                    eprintln!("Unable to listen for shutdown signal: {}", err);
+                    // we also shut down in case of error
+                },
             }
         });
+    }
+
+    tokio::select! {
+        _ = run_listener(&listener, &backend_unavailable, &backend_available, &backend_address) => {},
+        _ = shutdown_recv.recv() => {},
     }
 
     Ok(())
@@ -82,6 +82,32 @@ async fn proxy_connection(mut ingress: TcpStream, mut backend: TcpStream) {
         }
         Err(e) => {
             error!("Error while proxying: {e}");
+        }
+    }
+}
+
+async fn run_listener(listener: &TcpListener, backend_unavailable: &Arc<Notify>, backend_available: &Arc<Notify>, backend_address: &str) {
+    {
+        while let Ok((ingress, _)) = listener.accept().await {
+            let backend_unavailable = backend_unavailable.clone();
+            let backend_available = backend_available.clone();
+            let backend_address = backend_address.to_owned().clone();
+            // span a new task to handle the connection
+            tokio::spawn(async move {
+                loop {
+                    match TcpStream::connect(&backend_address).await {
+                        Ok(backend) => {
+                            trace!("Successfully connected to backend. Proxying packets.");
+                            proxy_connection(ingress, backend).await;
+                            break;
+                        }
+                        Err(_) => {
+                            backend_unavailable.notify_one();
+                            backend_available.notified().await;
+                        }
+                    };
+                }
+            });
         }
     }
 }
