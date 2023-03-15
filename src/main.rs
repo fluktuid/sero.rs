@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
 
     let listen_address = settings.host;
     let name = settings.target.service.name;
-    let backend_address = format!("{}:{}", name , settings.target.service.port.to_string());
+    let backend_address = format!("{}:{}", name, settings.target.service.port.to_string());
 
     let target_deploy = settings.target.deployment;
 
