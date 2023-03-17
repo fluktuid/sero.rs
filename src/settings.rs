@@ -28,7 +28,7 @@ pub struct Timeout {
   #[serde(rename = "scaleUP")]
   pub scale_up: i32,
   #[serde(rename = "scaleDown")]
-  pub scale_down: i32,
+  pub scale_down: u64,
 }
 
 const CONFIG_FILE_PREFIX: &str = "./config.yaml";
