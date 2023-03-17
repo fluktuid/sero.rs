@@ -1,6 +1,16 @@
 # Build Stage
 FROM rust:1.68-alpine3.17 AS builder
-RUN apk update && apk add --no-cache libressl-dev libc-dev
+RUN apk update && apk add --no-cache libc-dev ca-certificates musl musl-dev openssl-dev openssl-libs-static
+
+#RUN apk add --no-cache  sqlite-static  pkgconf git libpq-dev
+
+
+# Set `SYSROOT` to a dummy path (default is /usr) because pkg-config-rs *always*
+# links those located in that path dynamically but we want static linking, c.f.
+# https://github.com/rust-lang/pkg-config-rs/blob/54325785816695df031cef3b26b6a9a203bbc01b/src/lib.rs#L613
+ENV SYSROOT=/dummy
+# The env var tells pkg-config-rs to statically link libpq.
+ENV LIBPQ_STATIC=1
 
 WORKDIR /usr/src/
 RUN rustup target add x86_64-unknown-linux-musl
